@@ -1,0 +1,79 @@
+# ESP32 4G OTA (Over-The-Air) System - User Guide
+
+This document provides a step-by-step guide to using the ESP32 4G OTA System. This system allows you to remotely upload files, images, or firmware updates to an ESP32's SD card over a 4G mobile network using a secure Cloud Dashboard.
+
+---
+
+## 1. System Overview
+*   **Hardware:** ESP32 Microcontroller, 4G GSM Modem (SIM7600/BG96), MicroSD Card Module.
+*   **Cloud Server:** Node.js backend hosted on Render.
+*   **Protocol:** HTTPS Long-Polling with Acknowledgment.
+*   **Safety Feature:** Files are downloaded with a `.tmp` extension first. They are only renamed to their original extension if the download completes 100%. If the network disconnects, the corrupted `.tmp` file is automatically deleted.
+
+---
+
+## 2. Hardware Preparation
+1.  **SIM Card:** Insert an active 4G SIM card (e.g., Airtel) into the GSM modem. Ensure it has an active data plan.
+2.  **SD Card:** Insert a FAT32-formatted MicroSD card into the SD card slot.
+3.  **Antenna:** Ensure the 4G LTE antenna is securely attached to the GSM module for better signal reception.
+4.  **Power:** Power on the ESP32 and the GSM module using a stable power supply (GSM modules require high current, approx. 2A).
+
+---
+
+## 3. How to perform an OTA Update
+
+### Step 3.1: Power on the Device
+Turn on the ESP32 device. The system will automatically:
+1.  Initialize the SD Card.
+2.  Connect to the 4G Mobile Network.
+3.  Connect to the Cloud Server.
+
+*(If you are monitoring via Arduino Serial Monitor, wait until it says `[LONG-POLL] Server par Wait kar rahe hain...`)*
+
+### Step 3.2: Open the Dashboard
+Open a web browser on your computer or mobile phone and go to your Cloud Dashboard:
+👉 **URL:** [https://esp32-ota.onrender.com](https://esp32-ota.onrender.com)
+
+### Step 3.3: Verify Connection Status
+Look at the status indicator on the top-right corner of the Dashboard:
+*   🔴 **Waiting for ESP32:** The ESP32 is either offline, reconnecting to the 4G network, or currently saving a file.
+*   🟢 **ESP32 Online:** The ESP32 is successfully connected to the cloud and is ready to receive a file.
+
+> [!WARNING]
+> **Important Rule:** Do NOT upload any files until the indicator is Green (**ESP32 Online**). 
+
+### Step 3.4: Upload the File
+1.  Once the indicator is **Green**, drag and drop your file (e.g., `firmware.bin`, `image.jpg`) into the Dashboard box, or click the box to select a file.
+2.  The Dashboard will upload the file to the Cloud Server. You will see a progress bar indicating the upload status.
+
+### Step 3.5: Monitor Download Progress
+Once the file reaches the Cloud Server, the Server will automatically forward it to the ESP32. 
+You can monitor the real-time status in the Dashboard's **Log Console** (at the bottom of the screen):
+*   `> Uploading firmware.bin to Cloud...`
+*   `> File uploaded to Cloud! Transferring to ESP32...`
+
+The ESP32 will now start downloading the file to its SD card. **Do not turn off the ESP32 during this process.**
+
+### Step 3.6: Wait for Acknowledgment
+Depending on the 4G network speed and file size, the download may take a few seconds to a few minutes. 
+Once the ESP32 finishes saving the file to the SD card, it will send an Acknowledgment back to the Dashboard.
+
+Look for the final success message in the Dashboard Log Console:
+*   ✅ `> Success_Saved_100%` (The file was successfully saved to the SD Card with its original name).
+
+**Troubleshooting Acknowledgments:**
+*   ❌ `> Failed_Disconnected_in_middle`: The 4G connection dropped during the download. The corrupt file was automatically deleted. Try uploading again.
+*   ❌ `> Failed_SD_Card_Error`: The SD card is either full, not inserted properly, or corrupted.
+
+---
+
+## 4. Frequently Asked Questions (FAQ)
+
+**Q: Can I upload any type of file?**
+A: Yes, you can upload `.bin`, `.jpg`, `.txt`, `.pdf`, etc. The ESP32 will save it to the SD card exactly with the same name and extension you uploaded it with.
+
+**Q: What happens if the power goes out during a download?**
+A: The system uses a Fail-Safe mechanism. It downloads the file as a `.tmp` file (e.g., `image.jpg.tmp`). If the power goes out, the `.tmp` file remains. The original file is never corrupted. The system deletes useless `.tmp` files upon detecting a failed download.
+
+**Q: Why does the Dashboard say "Waiting for ESP32"?**
+A: The ESP32 connects to the server for 60 seconds at a time (Long-Polling). If it times out, it reconnects immediately. There might be a 1-2 second gap between reconnections. Wait a few seconds for it to turn Green before uploading. If it stays red for a long time, the ESP32 might be in an area with poor 4G signal. Reset the ESP32 device if necessary.

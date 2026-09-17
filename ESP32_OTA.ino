@@ -51,49 +51,50 @@ void setup() {
 
 void loop() {
   if (PPP.localIP() == IPAddress(0,0,0,0)) {
-    Serial.println("Waiting for IP Address...");
+    Serial.println("Waiting for IP...");
     delay(2000);
     return;
   }
 
-  Serial.println("\n[LONG-POLL] Server ko call laga rahe hain (Hold par baithne ke liye)...");
+  Serial.println("\n[LONG-POLL] Server par Wait kar rahe hain...");
   
   NetworkClientSecure secureClient; 
   HTTPClient http;                  
-  
   secureClient.setInsecure(); 
-  http.begin(secureClient, serverUrl);
-  http.setTimeout(60000); // 60 seconds ka wait
   
-  // 👇 1. HTTP Headers me se original naam nikalne ki setting
+  http.begin(secureClient, serverUrl);
+  http.setTimeout(60000); 
+  
   const char* headerKeys[] = {"Content-Disposition"};
   http.collectHeaders(headerKeys, 1);
   
   int httpCode = http.GET();
-  
+  String ackMessage = ""; // Dashboard ko bhejane ke liye message
+
   if (httpCode == 200) {
-    Serial.println("[SUCCESS] Server se file milna shuru ho gayi hai!");
-    
-    // 👇 2. Asli naam nikalna
-    String filename = "/test_download.bin"; // Default naam
+    String finalFilename = "/test_download.bin"; 
     if (http.hasHeader("Content-Disposition")) {
       String disp = http.header("Content-Disposition");
       int start = disp.indexOf("filename=\"");
       if (start != -1) {
         int end = disp.indexOf("\"", start + 10);
-        if (end != -1) filename = "/" + disp.substring(start + 10, end);
+        if (end != -1) finalFilename = "/" + disp.substring(start + 10, end);
       }
     }
     
-    Serial.println("✅ File ab is naam se save ho rahi hai: " + filename);
+    // SAFE DOWNLOAD: Pehle temporary file me download karo
+    String tempFilename = finalFilename + ".tmp";
+    Serial.println("✅ Downloading to Temp file: " + tempFilename);
     
-    File file = SD.open(filename, FILE_WRITE);
+    File file = SD.open(tempFilename, FILE_WRITE);
     if (!file) {
-      Serial.println("[ERROR] SD Card me file open nahi ho payi!");
+      Serial.println("[ERROR] SD Card me file open nahi hui!");
+      ackMessage = "Failed_SD_Card_Error";
     } else {
       auto stream = http.getStreamPtr();
       uint8_t buff[512] = { 0 };
-      int len = http.getSize();
+      int totalSize = http.getSize();
+      int len = totalSize;
       int bytesWritten = 0;
       
       while (http.connected() && (len > 0 || len == -1)) {
@@ -107,14 +108,36 @@ void loop() {
         delay(1); 
       }
       file.close();
-      Serial.printf("✅ Jadoo! File Render se direct SD card me save ho gayi! Total Size: %d bytes\n", bytesWritten);
+      
+      // CHECK: Download 100% complete hua ya kata?
+      if (totalSize > 0 && bytesWritten == totalSize) {
+         if (SD.exists(finalFilename)) SD.remove(finalFilename); // Purani file hatao
+         SD.rename(tempFilename, finalFilename); // .tmp hatakar Asli naam rakho
+         
+         Serial.printf("✅ Download 100%% Complete! Saved as %s\n", finalFilename.c_str());
+         ackMessage = "Success_Saved_100%";
+      } else {
+         Serial.println("❌ ERROR: Connection beech me kat gaya! Kharab file delete kar rahe hain.");
+         SD.remove(tempFilename); // Corrupt file mitao
+         ackMessage = "Failed_Disconnected_in_middle";
+      }
     }
   } else if (httpCode == 204) {
-    Serial.println("[TIMEOUT] Server par abhi tak koi file nahi thi. Wapas call lagayenge...");
+    Serial.println("[TIMEOUT] Server par koi file nahi thi.");
   } else {
-    Serial.printf("[ERROR] HTTP fail ho gaya. Error code: %d\n", httpCode);
+    Serial.printf("[ERROR] HTTP fail: %d\n", httpCode);
   }
   
-  http.end();
-  delay(1000);
+  http.end(); // Purana connection band karein
+
+  // DASHBOARD KO NOTIFICATION BHEJEIN
+  if (ackMessage != "") {
+     HTTPClient ackHttp;
+     ackHttp.begin(secureClient, String("https://esp32-ota.onrender.com/ack?msg=") + ackMessage);
+     ackHttp.GET();
+     ackHttp.end();
+  }
+
+  delay(1000); 
 }
+
